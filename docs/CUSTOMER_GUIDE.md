@@ -59,7 +59,7 @@ Huaray MVSDK 로그도 `%USERPROFILE%\MVSDK\<Application 이름>\*.log`에서 �
 .\FetchNetworkConfig.exe analyze "D:\Received\diagnostics.zip" --date 2026-10-08
 ```
 
-일반 분석은 새 결과 폴더에 `analysis.html`을 생성합니다. NIC별 IP·드라이버·필터·Jumbo·전원·고급 설정을 검색하거나 펼쳐 볼 수 있습니다. 날짜 추출은 `selected-events.csv`와 원래 JSON/XML을 보존하는 `selected-events.jsonl`도 생성합니다.
+일반 분석은 새 결과 폴더에 `analysis.html`, `findings.json`, `llm-context.json`을 생성합니다. 보고서는 종합 판정(심각/주의/판단 불가/정상), 주요 문제와 권장 조치, 카메라 NIC 체크리스트(링크 속도·Jumbo·MTU·수신 버퍼·EEE·전원·필터·방화벽·오류 카운터), 카메라·SDK 세션 품질, 링크·SDK·앱 오류 상관 타임라인 순으로 보여 줍니다. 연결되지 않은 NIC와 전체 원본 표는 부록에 접어 둡니다. 판정은 수집값 기반의 규칙 판정이며 "추정" 표시는 시간·이름 일치에 근거한 것입니다. `llm-context.json`은 컴퓨터명·사용자명·카메라 시리얼·MAC 일부·공인 IP를 마스킹한 요약이며 프로그램이 외부로 보내지 않습니다. 날짜 추출은 `selected-events.csv`와 원래 JSON/XML을 보존하는 `selected-events.jsonl`도 생성합니다.
 
 날짜 기준은 기본 UTC+09:00입니다. UTC 날짜는 `--utc-offset +00:00`을 추가합니다. NIC 설정은 수집 시점의 상태이며 지정 날짜의 과거 설정을 복원하지 않습니다. 분석 종료 코드 1도 보고서는 생성되며 일부 누락/미해석 상태를 뜻합니다.
 
