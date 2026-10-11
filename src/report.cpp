@@ -156,6 +156,7 @@ bool write_reports(const Output& output,const Json& input,const Json& modules,co
         "events-*.jsonl: 이벤트별 원본 XML 및 식별 정보 (xml 문자열을 디코딩하면 원본 XML)\r\n"
         "setupapi-nic.log / user-log-*.log: 관련 기존 로그 증거\r\n"
         "sapera-Logs.dat: Sapera Log Server 원본 바이트 (최대 64 MiB, 날짜 필터/텍스트 분석 없음)\r\n"
+        "mvsdk-log-*.log / mvsdk-index.json: 사용자 프로필 MVSDK 로그와 애플리케이션·원본 경로·복사 범위 대응표\r\n"
         "manifest.json: 파일 SHA-256 (manifest 자체와 ZIP은 순환 해시를 피하기 위해 제외)\r\n"
         "diagnostics.zip.sha256: 완성된 ZIP의 SHA-256\r\n";
     output.write("summary.txt",summary.str());
@@ -165,10 +166,12 @@ void write_manifest(const Output& output,const Json& input,const Json& modules,c
     Json files=Json::array(),coverage=Json::array(),external=Json::array();
     std::set<std::string> registered={"snapshot.json","timeline.csv","summary.txt"};
     for(const auto& m:modules){for(const auto& name:m.value("artifacts",Json::array()))registered.insert(name.get<std::string>());if(m.contains("external_attachment")&&m.value("status","")=="ok")external.push_back(m["external_attachment"]);}
-    uint64_t retained=0,logs=0;
+    uint64_t retained=0,logs=0,mvsdk=0;
+    if(registered.size()>255)throw std::runtime_error("Registered evidence file count limit exceeded.");
     for(const auto& name:registered) {if(name.starts_with("dump-attachments")||name=="diagnostics.zip"||name=="manifest.json")throw std::runtime_error("Invalid core artifact registration.");auto p=output.file(name);ensure_local_path(p);auto size=fs::file_size(p);
         if(name.starts_with("user-log-")){if(size>kUserLogBytes||size>kUserLogBytes*kUserLogCount-logs)throw std::runtime_error("Registered user log byte budget exceeded.");logs+=size;}
-        else{if(size>64ULL*1024*1024||size>256ULL*1024*1024-retained)throw std::runtime_error("Registered core evidence byte budget exceeded.");retained+=size;}
+        else{if(name.starts_with("mvsdk-log-")){if(size>kUserLogBytes||size>kMvSdkLogBytes-mvsdk)throw std::runtime_error("Registered MVSDK log byte budget exceeded.");mvsdk+=size;}
+            if(size>64ULL*1024*1024||size>256ULL*1024*1024-retained)throw std::runtime_error("Registered core evidence byte budget exceeded.");retained+=size;}
         files.push_back({{"name",name},{"size_bytes",size},{"sha256",sha256(p)}});}
     for(const auto& m:modules)coverage.push_back({{"task_id",m["task_id"]},{"status",m["status"]},{"issues",m["issues"]},{"artifacts",m["artifacts"]}});
     Json manifest{{"schema_version",1},{"tool_version",FNC_VERSION},{"started_at_utc",start},{"completed_at_utc",end},

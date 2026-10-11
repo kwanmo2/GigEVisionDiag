@@ -138,6 +138,14 @@ int collect(const Options& options) {
         if(task.id.starts_with("events:")){partial_name="events-";for(char c:task.id.substr(7))partial_name+=std::isalnum(static_cast<unsigned char>(c))||c=='-'?c:'_';partial_name+=".jsonl";}
         if(task.id.starts_with("log:"))partial_name="user-log-"+std::to_string(std::stoul(task.id.substr(4))+1)+".log";
         if(task.id=="sapera")partial_name="sapera-Logs.dat";
+        if(task.id=="mvsdk") {
+            for(size_t i=0;i<=kMvSdkLogCount;++i){auto name=i?"mvsdk-log-"+std::to_string(i)+".log":std::string("mvsdk-index.json");
+                if(fs::exists(output.file(name))&&std::find(r["artifacts"].begin(),r["artifacts"].end(),Json(name))==r["artifacts"].end())r["artifacts"].push_back(name);}
+            if(!r.contains("files")&&fs::exists(output.file("mvsdk-index.json")))try {
+                auto index=Json::parse(read_local_file(output.file("mvsdk-index.json"),2*1024*1024));
+                for(auto key:{"files","discovery","copied_bytes","coverage_note"})if(index.contains(key))r[key]=index[key];
+            }catch(const std::exception& e){issue(r,"partial",std::string("MVSDK index recovery failed: ")+e.what());}
+        }
         if(!partial_name.empty()&&fs::exists(output.file(partial_name))&&std::find(r["artifacts"].begin(),r["artifacts"].end(),Json(partial_name))==r["artifacts"].end())r["artifacts"].push_back(partial_name);
         if(task.id=="setupapi")for(auto name:{"setupapi-nic.log","setupapi-timeline.jsonl"})if(fs::exists(output.file(name))&&std::find(r["artifacts"].begin(),r["artifacts"].end(),Json(name))==r["artifacts"].end())r["artifacts"].push_back(name);
         if(task.id.starts_with("events:")||task.id=="setupapi")for(const auto& artifact:r["artifacts"])if(artifact.get<std::string>().ends_with(".jsonl")){

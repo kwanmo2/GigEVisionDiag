@@ -19,9 +19,11 @@ Windows 10/11 x64용 설치 없는 콘솔 프로그램입니다. NIC·네트워�
 
 Sapera Log Server의 기존 로그는 옵션 없이 자동 수집합니다. `HKLM\SOFTWARE\Teledyne DALSA\Sapera Log Server`의 `LogFile` 값을 우선 사용하고, 값이 없으면 `%WINDIR%\System32\Logs.dat`를 읽습니다. 최대 64 MiB까지 전체를 `sapera-Logs.dat`로 ZIP에 포함합니다. 초과·파일 없음·권한 부족·잠금은 수집 상태에 기록됩니다. 서비스나 로그 설정은 변경하지 않습니다. 파일에는 날짜 필터나 텍스트 분석을 적용하지 않으며 Sapera Log Viewer에서 별도로 확인합니다.
 
+Huaray MVSDK 로그도 `%USERPROFILE%\MVSDK\<Application 이름>\*.log`에서 자동 수집합니다. 최근 수정된 파일부터 최대 192개, 파일마다 마지막 16 MiB, 합계 64 MiB까지 원본 바이트를 보존합니다. 합계 예산이 적게 남으면 남은 범위만 복사합니다. ZIP의 `mvsdk-log-*.log`와 `mvsdk-index.json`에는 원래 앱 이름·파일명·경로·수정 시각·복사 범위·개별 결과가 기록됩니다. 파일 잠금이나 제한은 나머지 수집을 중단하지 않습니다. `--days`로 파일을 거르지 않으며 앱 폴더 한 단계만 조회합니다. ZIP·덤프·중첩 폴더와 junction/symlink는 제외합니다. 다른 계정으로 실행하면 해당 실행 계정의 프로필을 사용합니다.
+
 선택 옵션: `--days 1~3650`, `--incident-time ISO8601`, `--camera-mac`, `--expected-camera-ip`, `--log-file`. 사용자 로그는 최대 16개, 각각 마지막 16 MiB를 복사합니다. 카메라 MAC/IP 옵션은 사용자가 제공한 조사 기준이며 카메라에 접속하거나 실제 IP를 조회하지 않습니다. `--help`, `--version`은 관리자 권한 없이 실행할 수 있습니다.
 
-카메라 앱의 장애 기록과 기존 SDK 로그를 함께 지정할 수 있습니다. 로그 폴더를 자동 검색하지 않습니다. 아래 오프셋은 원본 로그가 한국 시간일 때의 예입니다.
+자동 수집 MVSDK 로그 외에 카메라 앱의 장애 기록과 기존 SDK 로그를 함께 지정할 수 있습니다. 아래 오프셋은 원본 로그가 한국 시간일 때의 예입니다.
 
 ```powershell
 .\FetchNetworkConfig.exe --app-name MVviewer.exe --log-file "D:\CameraApp\2026-10-09.123.MVSDK.log" --log-utc-offset +09:00
@@ -46,7 +48,7 @@ Sapera Log Server의 기존 로그는 옵션 없이 자동 수집합니다. `HKL
 
 `snapshot.json`에는 현재 설정과 수집 상태, `events-*.jsonl`에는 원본 XML, `timeline.csv`에는 시각과 원본 파일/행 번호, `manifest.json`에는 파일 해시가 있습니다. 해시는 손상 확인 수단이며 자료 출처를 인증하는 서명이 아닙니다.
 
-SDK 로그를 지정하면 `sdk-events.jsonl`과 `sdk-summary.json`, 덤프를 지정하면 `dump-*-metadata.json`을 포함합니다. 원본 첨부를 요청한 경우 `dump-attachments.zip`과 체크섬은 `diagnostics.zip`과 별도입니다. 프로세스 메모리가 포함될 수 있으므로 고객이 허용한 범위에서 함께 전달합니다.
+자동·명시 SDK 로그의 분석 결과는 `sdk-events.jsonl`과 `sdk-summary.json`에 포함합니다. 덤프를 지정하면 `dump-*-metadata.json`을 포함합니다. 원본 첨부를 요청한 경우 `dump-attachments.zip`과 체크섬은 `diagnostics.zip`과 별도입니다. 프로세스 메모리가 포함될 수 있으므로 고객이 허용한 범위에서 함께 전달합니다.
 
 ## 저장된 자료 분석
 

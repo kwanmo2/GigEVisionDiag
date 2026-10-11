@@ -331,7 +331,7 @@ Json query_wmi(std::wstring_view ns,std::wstring_view class_name,std::wstring_vi
     return r;
 }
 std::vector<Task> collection_tasks(size_t log_count,size_t dump_count,bool include_evtx) {
-    std::vector<Task> tasks={{"system","PC and time zone"},{"sapera","Existing Sapera Log Server file"},{"network","NIC, IP, routes and existing neighbor cache"},
+    std::vector<Task> tasks={{"system","PC and time zone"},{"sapera","Existing Sapera Log Server file"},{"mvsdk","Existing MVSDK application logs"},{"network","NIC, IP, routes and existing neighbor cache"},
         {"devices","Network devices"},{"drivers","NIC drivers and DHCP leases"},{"advanced","NIC advanced settings"},
         {"power","NIC power management"},{"offload","RSS and offload settings"},{"bindings","Bindings and network profiles"},
         {"registry","NIC and persistent TCP/IP values"},{"firewall","Windows Firewall policy"},{"software","Camera software inventory"},{"setupapi","Existing NIC installation history"},
@@ -343,7 +343,7 @@ std::vector<Task> collection_tasks(size_t log_count,size_t dump_count,bool inclu
         {"events:Security","Existing NIC/TCP-IP registry audit events"},
         {"events:mvGenICamForEthernet","Separate GigE camera driver history"}};
     for(size_t i=0;i<log_count;++i)tasks.push_back({"log:"+std::to_string(i),"User-specified existing log "+std::to_string(i+1)});
-    if(log_count)tasks.push_back({"sdk","Structured SDK log analysis"});
+    tasks.push_back({"sdk","Structured SDK log analysis"});
     for(size_t i=0;i<dump_count;++i)tasks.push_back({"dump:"+std::to_string(i),"User-specified dump metadata "+std::to_string(i+1)});
     if(include_evtx)tasks.push_back({"evtx","Optional selected System/Application EVTX"});
     return tasks;
@@ -364,6 +364,7 @@ Json collect_task(std::string_view id,const Json& input,const Output& output) {
     if(id=="setupapi")return collect_setupapi(input,output);
     if(id=="sdk")return collect_sdk_logs(input,output);
     if(id=="sapera")return collect_sapera_log(output);
+    if(id=="mvsdk")return collect_mvsdk_logs(output);
     if(id=="evtx")return export_selected_evtx(input,output);
     if(id=="dump-attachments")return attach_dumps(input,output);
     if(id.starts_with("dump:"))return collect_dump(static_cast<size_t>(std::stoul(std::string(id.substr(5)))),input,output);

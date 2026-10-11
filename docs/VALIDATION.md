@@ -104,3 +104,14 @@
 - 이 PC의 64비트 `HKLM\SOFTWARE\Teledyne DALSA\Sapera Log Server\LogFile`에서 `C:\WINDOWS\SYSTEM32\Logs.dat`를 읽어 28,000,240바이트 전체를 복사. 수정 시각은 `2026-06-05T01:50:34.840Z`, 수집 중 변경 없음. 읽기/쓰기/삭제 공유를 허용한 읽기 핸들로 원본 수집 전후 SHA-256과 복사본 SHA-256 일치를 확인.
 - 생성된 실제 로그 번들을 Python ZIP CRC/manifest 해시 검증 도구 및 배포 EXE의 `analyze` 명령으로 검증. Sapera Log Server(`CorLogServer`)는 실행 상태였으며 서비스 제어를 수행하지 않음. 실제 로그와 테스트 결과는 배포 대상이 아닌 `build` 안에만 저장.
 - 이 검증은 현재 PC의 읽기 전용 수집 및 번들 분석 범위. Sapera Log Viewer에서의 열기, 32비트 레지스트리 설정, 다른 고객 환경은 별도 검증 대상.
+
+## MVSDK 애플리케이션 로그 자동 수집 검증 — 2026-10-12
+
+- Windows x64 Release 빌드, CTest 5개(기존 동작·분석·SDK/덤프·MVSDK·배포), 정적 읽기 전용 API 검사 및 `git diff --check` 통과. MVSDK 테스트의 junction 경계를 추가한 뒤 해당 테스트를 다시 실행해 통과함.
+- 합성 자료로 한글·공백 앱 폴더, 서로 다른 앱의 동일 파일명, 최근 수정 순서, 앱 폴더 한 단계의 `.log` 선택, ZIP/덤프/중첩 폴더 제외, 루트 없음·빈 폴더, 독점 잠금 후 다른 파일 수집 계속, 192개/64 MiB 한도·꼬리 오프셋 및 UTF-16 정렬을 검증. junction 앱 폴더는 건너뛰며 junction 루트는 거부함.
+- 자동 로그와 명시 로그의 수집→SDK 구조화→snapshot/manifest→ZIP→오프라인 분석 및 날짜 선택을 검증. 폴더/ZIP의 스트리밍 해시가 원본과 일치하며 파생 SDK 파일이 없는 번들과 메모리 입력의 재분석도 지원함. 변조한 자동 로그는 manifest 검증에서 거부함.
+- 현재 토큰의 테스트 EXE로 실제 사용자 프로필 `MVSDK`의 애플리케이션 31개에서 로그 143개, 850,314바이트를 수집함. 누락·잘림·읽기 중 변경 없음. SDK 소스 143개·세션 290개·타임라인 기록 2,336개를 생성함. Python 독립 ZIP CRC/manifest SHA-256/타임라인 검증과 제품 EXE의 `analyze --log-utc-offset +09:00`을 통과함. 합성 MVSDK 번들도 독립 검증을 통과함.
+- 별도 원본 해시 전후 대조에서 142개는 일치함. 실행 중인 MVviewer 로그 1개는 사전 대조 때 43,167바이트, 수집본 44,059바이트, 후속 관찰 때 48,073바이트로 증가함. 수집 중 메타데이터 변경은 없었으며 순차 관찰 사이의 자연적인 기록 증가를 원본 변경 실패로 판정하지 않음.
+- 배포 ZIP의 허용 목록·CRC·해시·버전·표시명 검증 통과. 실제 로그와 테스트 증거는 `build` 아래에만 저장하며 배포 ZIP에 포함하지 않음. 이번 실제 시험은 현재 토큰의 MVSDK 조회와 제품 EXE의 오프라인 분석 범위이며 관리자 제품 전체 수집·다른 고객 환경·카메라 운용 부하 시험은 기존 별도 검증 범위를 유지함.
+
+실제 번들 근거: `build/FetchNetworkConfig-2026-10-11T15-45-39-230Z-FBF13A20/diagnostics.zip`. 원본 대조 목록과 수집 결과는 `build/mvsdk-source-before.json`, `build/mvsdk-live-result.txt`에 기록함.

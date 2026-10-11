@@ -26,13 +26,13 @@ int fixture_worker(const std::string& id) {
     }
     write_all(GetStdHandle(STD_OUTPUT_HANDLE),json_text(result("test fixture")));return 0;
 }
-int live_test(const fs::path& parent,bool include_evtx=false,bool sapera_only=false) {
+int live_test(const fs::path& parent,bool include_evtx=false,std::string_view only={}) {
     auto root=Output::create_run(parent);Output output(root);auto started=utc_now();auto to=*parse_iso_time(started);
     Json input{{"output_dir",utf8(root.native())},{"days",30},{"from_utc",iso_time(to-30ULL*86400*10000000)},{"to_utc",started},
         {"incident_time",nullptr},{"camera_mac",nullptr},{"expected_camera_ip",nullptr},{"log_files",Json::array()},{"include_evtx",include_evtx},{"nic_tokens",Json::array()},{"device_ids",Json::array()}};
     Json modules=Json::array();auto began=GetTickCount64();
     for(const auto& task:collection_tasks(0,0,include_evtx)) {
-        if(sapera_only&&task.id!="sapera")continue;
+        if(!only.empty()&&task.id!=only&&!(only=="mvsdk"&&task.id=="sdk"))continue;
         if(GetTickCount64()-began>=300000)break;
         auto r=run_worker({"live:"+task.id,task.title},input,30000);r["task_id"]=task.id;
         if(task.id=="network")input["nic_tokens"]=history_nic_tokens(r);
@@ -133,7 +133,8 @@ void tests() {
 int wmain(int argc,wchar_t** argv) {
     try {if(argc==3&&std::wstring_view(argv[1])==L"--worker")return fixture_worker(utf8(argv[2]));
         if(argc==3&&std::wstring_view(argv[1])==L"--live-readonly")return live_test(argv[2]);
-        if(argc==3&&std::wstring_view(argv[1])==L"--live-sapera")return live_test(argv[2],false,true);
+        if(argc==3&&std::wstring_view(argv[1])==L"--live-sapera")return live_test(argv[2],false,"sapera");
+        if(argc==3&&std::wstring_view(argv[1])==L"--live-mvsdk")return live_test(argv[2],false,"mvsdk");
         if(argc==3&&std::wstring_view(argv[1])==L"--live-evtx")return live_test(argv[2],true);tests();return 0;}
     catch(const std::exception& e){std::cerr<<"Test failed: "<<e.what()<<"\n";return 1;}
 }
