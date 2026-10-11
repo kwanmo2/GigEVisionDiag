@@ -12,6 +12,9 @@ class SdkLogParser {
     size_t retained_bytes_=0;
     Json events_=Json::array(), files_=Json::array();
     size_t recognized_=0, skipped_=0;
+    std::set<std::string> camera_ips_;
+    std::vector<std::string> reset_times_;
+    Json identities_=Json::array();
     void line(std::string bytes);
 public:
     void begin(std::string source, std::string original={}, uint64_t base_offset=0, bool utf16=false);

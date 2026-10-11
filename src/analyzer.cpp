@@ -279,7 +279,7 @@ Json analyze_evidence(const EvidenceFiles& files,const std::optional<EventDateFi
     verify_files(files);auto s=parse_json(files.at("snapshot.json"));
     need(s.value("schema_version",0)==1,"Unsupported snapshot schema version.");need(s.contains("modules")&&s["modules"].is_array(),"Invalid snapshot modules.");
     Json r={{"schema_version",1},{"incomplete",false},{"notices",Json::array()},{"notice_count",0},{"snapshot",s},{"nics",Json::array()},{"overlaps",Json::array()},
-        {"event_channels",Json::array()},{"event_groups",Json::array()},{"links",Json::array()},{"setupapi",Json::array()},
+        {"event_channels",Json::array()},{"event_groups",Json::array()},{"links",Json::array()},{"power_events",Json::array()},{"setupapi",Json::array()},
         {"selected_events",Json::array()},{"source_event_count",0},{"source_setupapi_count",0},{"undated_setupapi_count",0},
         {"app_incidents",Json::array()},{"dumps",Json::array()},{"sdk_event_count",0},{"undated_sdk_count",0}};
     r["event_date_filter"]=filter?Json{{"date",filter->date},{"utc_offset",filter->utc_offset},{"from_utc",iso_time(filter->from)},{"to_utc_exclusive",iso_time(filter->to)}}:Json(nullptr);
@@ -360,6 +360,10 @@ Json analyze_evidence(const EvidenceFiles& files,const std::optional<EventDateFi
                     }
                     auto& g=groups[{name,provider,id,level}];++g.count;
                     if(g.newest.empty()||time>g.newest){g.newest=time;g.example=evidence(name,line_number,e);}if(g.oldest.empty()||time<g.oldest)g.oldest=time;
+                    // PC power transitions take every NIC down; diagnosis uses them to separate PC-side link drops.
+                    std::string power=provider=="Microsoft-Windows-Kernel-General"?(id==12?"boot":id==13?"shutdown":""):provider=="Microsoft-Windows-Kernel-Power"?(id==41?"unexpected":id==42?"sleep":id==107?"resume":""):
+                        provider=="EventLog"&&id==6008?"unexpected":provider=="Microsoft-Windows-Power-Troubleshooter"&&id==1?"resume":"";
+                    if(!power.empty()&&r["power_events"].size()<2000)r["power_events"].push_back({{"time_utc",time},{"kind",power}});
                     bool intel=provider=="e1rexpress"||provider=="e2fnexpress";
                     int action=intel&&id==27?-1:intel&&id==32?1:provider=="aqnic650"&&id==14?-1:0;
                     if(action) {
@@ -399,12 +403,14 @@ Json analyze_evidence(const EvidenceFiles& files,const std::optional<EventDateFi
         for(size_t i=1;i<link.ordered.size();++i)if(link.ordered[i-1].second==-1&&link.ordered[i].second==1)durations.push_back(double(link.ordered[i].first-link.ordered[i-1].first)/10000000.0);
         std::sort(durations.begin(),durations.end());Json daily=Json::array();for(const auto& [day,n]:link.daily)daily.push_back({{"day",day},{"down",n.first},{"up",n.second}});
         Json median=nullptr;if(!durations.empty()){auto k=durations.size()/2;median=durations.size()%2?durations[k]:(durations[k-1]+durations[k])/2;}
-        Json times=Json::array();for(const auto& [ticks,action]:link.ordered){if(times.size()>=2000)break;times.push_back({{"time_utc",iso_time(ticks)},{"action",action<0?"down":"up"}});}
+        Json times=Json::array();for(const auto& [ticks,action]:link.ordered){if(times.size()>=20000)break;times.push_back({{"time_utc",iso_time(ticks)},{"action",action<0?"down":"up"}});}
         r["links"].push_back({{"name",name},{"down",link.down},{"up",link.up},{"pairs",durations.size()},{"median_s",median},{"daily",daily},{"samples",link.samples},{"times",times}});
     }
     std::optional<std::string> sdk_offset=log_offset;if(!sdk_offset){const auto& saved=obj(s,"inputs");if(saved.contains("log_utc_offset")&&saved["log_utc_offset"].is_string())sdk_offset=saved["log_utc_offset"].get<std::string>();}
     if(sdk_offset)utc_offset_minutes(*sdk_offset);Json sdk_events=Json::array(),sdk_sources=Json::array();
-    if(files.contains("sdk-events.jsonl")) {
+    // Prefer a fresh parse of the verified raw logs so older bundles benefit from parser improvements.
+    bool fresh=files.streamed_sdk().is_object()&&!arr(files.streamed_sdk(),"sources").empty();
+    if(files.contains("sdk-events.jsonl")&&!fresh) {
         need(files.at("sdk-events.jsonl").size()<=kSdkEventBytes,"SDK derived event byte limit exceeded.");std::istringstream stream(files.at("sdk-events.jsonl"));std::string line;size_t count=0;
         while(std::getline(stream,line)){if(line.empty())continue;need(++count<=kSdkEventCount,"SDK derived event count limit exceeded.");
             try{auto e=parse_json(line);need(e.is_object()&&e.contains("fields")&&e["fields"].is_object()&&e.contains("source_line")&&e["source_line"].is_number_unsigned(),"Invalid SDK record.");

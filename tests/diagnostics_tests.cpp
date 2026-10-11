@@ -1,6 +1,7 @@
 #include "analyzer.hpp"
 #include "diagnostics.hpp"
 #include <iostream>
+#include <set>
 using namespace fnc;
 namespace {
 void require(bool b,const std::string& message){if(!b)throw std::runtime_error(message);}
@@ -9,6 +10,10 @@ void manifest(EvidenceFiles& files){Json items=Json::array();for(const auto& [n,
 Json system_event(int id,int record,std::string time,std::string device) {
     auto xml="<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='e1rexpress'/><EventID>"+std::to_string(id)+"</EventID><EventRecordID>"+std::to_string(record)+"</EventRecordID><TimeCreated SystemTime='"+time+"'/></System><EventData><Data/><Data>"+device+"</Data></EventData></Event>";
     return {{"provider","e1rexpress"},{"channel","System"},{"event_id",id},{"record_id",record},{"level",3},{"time_utc",time},{"time_local",time},{"xml",xml},{"message","link event"}};
+}
+Json boot_event(int record,std::string time) {
+    auto xml="<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Kernel-General'/><EventID>12</EventID><EventRecordID>"+std::to_string(record)+"</EventRecordID><TimeCreated SystemTime='"+time+"'/></System><EventData/></Event>";
+    return {{"provider","Microsoft-Windows-Kernel-General"},{"channel","System"},{"event_id",12},{"record_id",record},{"level",4},{"time_utc",time},{"time_local",time},{"xml",xml},{"message","boot"}};
 }
 Json crash_event(int record,std::string time) {
     auto xml="<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Application Error'/><EventID>1000</EventID><EventRecordID>"+std::to_string(record)+"</EventRecordID><TimeCreated SystemTime='"+time+"'/></System><EventData><Data Name='AppName'>CamApp.exe</Data><Data Name='ModuleName'>MVSDKmd.dll</Data><Data Name='ExceptionCode'>c0000005</Data></EventData></Event>";
@@ -59,17 +64,23 @@ EvidenceFiles fixture(Scenario sc) {
     if(!sc.with_power)s["modules"].push_back({{"task_id","power"},{"status","timeout"},{"issues",Json::array({Json{{"reason","test timeout"}}})}});
     EvidenceFiles files{{"snapshot.json",json_text(s)}};
     if(!sc.healthy) {
-        files["events-System.jsonl"]=json_text(system_event(27,1,"2026-10-09T00:05:00.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n"+json_text(system_event(32,2,"2026-10-09T00:05:04.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n";
+        // 00:05:00 drop: inside SDK log span, unexplained. 00:06:03: 3 s after DeviceReset (camera reboot). 02:00:10: PC boot. 03:00: no SDK log then.
+        files["events-System.jsonl"]=json_text(system_event(27,1,"2026-10-09T00:05:00.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n"+json_text(system_event(32,2,"2026-10-09T00:05:04.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n"
+            +json_text(system_event(27,3,"2026-10-09T00:06:03.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n"+json_text(system_event(27,4,"2026-10-09T03:00:00.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n"
+            +json_text(boot_event(6,"2026-10-09T02:00:00.000Z"))+"\n"+json_text(system_event(27,7,"2026-10-09T02:00:10.000Z","Intel(R) I210 Gigabit Network Connection"))+"\n";
         files["events-Application.jsonl"]=json_text(crash_event(5,"2026-10-09T00:05:30.000Z"))+"\n";
         files["user-log-1.log"]=
             "2026-10-09 09:00:00.000 INFO [tid:100] CameraImpl MVSDK version:[2.3.5]\n"
             "2026-10-09 09:00:01.000 INFO [tid:100] CameraImpl openDevice begin. Vendor=[Huaray] Model=[A7500MG20] SerialNumber=[SN12345] Version=[1.0.2]\n"
             "2026-10-09 09:00:01.500 INFO [tid:100] CameraImpl get NIC MTU Value: 1500\n"
             "2026-10-09 09:00:01.600 INFO [tid:100] CameraImpl negotiatePacketSize: 1500\n"
+            "2026-10-09 09:00:01.700 INFO [tid:100] GigEDevice testPacketSize recive data ret [1500], pktSize [1500], remote ip [192.168.10.20], dev ip [192.168.10.20]\n"
             "2026-10-09 09:00:02.000 INFO [tid:100] StreamSourceImpl startGrabbing begin.\n"
             "2026-10-09 09:05:00.000 INFO [tid:101] StreamSourceImpl statistics info: SerialNumber=[SN12345] imageReceived=[1000] fps=[30.0] lostPacket=[50] resendPacket=[20] errorImage=[30] lostPacketImage=[5]\n"
             "2026-10-09 09:05:01.000 ERROR [tid:101] CameraImpl heartbeat timeout occurred <b>\n"
-            "2026-10-09 09:05:02.000 INFO [tid:100] CameraImpl disconnect begin.\n";
+            "2026-10-09 09:05:02.000 INFO [tid:100] CameraImpl disconnect begin.\n"
+            "2026-10-09 09:06:00.000 INFO [tid:100] CameraImpl ParameterNodeImpl execute paramName=[DeviceReset] execute, SerialNumber=[SN12345]\n"
+            "2026-10-09 09:07:00.000 INFO [tid:100] CameraImpl openDevice begin. Vendor=[Huaray] Model=[A7500MG20] SerialNumber=[SN12345] Version=[1.0.2]\n";
     }
     manifest(files);return files;
 }
@@ -97,11 +108,25 @@ int wmain(int argc,wchar_t** argv) {
         require(d["findings"][0]["severity"]=="critical","Findings must be ordered by severity.");
         require(d["cameras"].size()==1&&d["cameras"][0]["model"]=="A7500MG20","Cameras must be listed from SDK sessions.");
         require(d["timeline"].size()>=4,"Timeline must merge link, SDK and application events.");
+        auto link_text=item(d,"EVT-LINKDOWN")["observed"].get<std::string>();
+        require(d["sdk_reset_count"]==1&&link_text.find("1회는 앱이 카메라에 DeviceReset")!=std::string::npos&&link_text.find("1회는 SDK 로그가 보존되지 않은")!=std::string::npos
+            &&link_text.find("1회는 SDK 로그 구간 안에서 원인 미확인")!=std::string::npos&&link_text.find("1회는 PC 재시작")!=std::string::npos,
+            "Link drops must split into reset-induced, PC-side, no-log and unexplained: "+link_text);
+        const auto& syn=d["synthesis"];const auto& link=d["checklists"][0]["link"];
+        require(link["down"]==4&&link["reset"]==1&&link["pc_side"]==1&&link["no_log"]==1&&link["unexplained"]==1&&link["episodes"]==1,"Link breakdown must be stored per camera NIC: "+link.dump());
+        require(!syn["conclusions"].empty()&&syn["conclusions"][0]["severity"]=="critical"&&syn["conclusions"][0]["text"].get<std::string>().find("Camera1 링크 분리 4회")!=std::string::npos,
+            "Synthesis must lead with the most severe conclusion: "+syn["conclusions"].dump());
+        {std::set<std::string> ids;for(const auto& a:syn["actions"])require(ids.insert(a["id"].get<std::string>()).second,"Actions must be one per rule id.");require(ids.contains("NIC-LINK"),"Actions must include critical findings.");}
+        require(syn["profile"].dump().find("PC 시작")!=std::string::npos&&!syn["limits"].empty(),"Synthesis must include the operating profile and analysis limits.");
+        require(severity(d,"EVT-POWER")=="info","PC boots must be reported.");
+        require(item(d,"IP-CAMSUBNET")["status"]=="ok"&&d["sdk_camera_ips"][0]=="192.168.10.20","Camera IPs from SDK logs must map to the camera NIC subnet.");
+        for(const auto& x:d["nic_roles"])if(x["if_index"]==1)require(x["reasons"].dump().find("SDK 로그의 카메라 IP")!=std::string::npos,"SDK camera IPs must count as camera NIC evidence.");
         require(severity(d,"NIC-JUMBO")=="warning"&&item(d,"NIC-JUMBO")["observed"]=="Disabled","Disabled jumbo must be reported from the display value.");
         auto html=analysis_html(r);
         require(html.find("종합 판정: 심각")!=std::string::npos&&html.find("id=\"appendix\"")!=std::string::npos&&html.find("카메라 NIC 체크리스트")!=std::string::npos,"HTML must lead with verdict, findings and checklist, with an appendix.");
         require(html.find("<script>alert(1)")==std::string::npos&&html.find("timeout occurred <b>")==std::string::npos,"Untrusted SDK and event text must stay escaped.");
         require(html.find("id=\"nic-1\"")!=std::string::npos,"Detailed NIC cards must remain in the appendix.");
+        require(html.find("id=\"synthesis\"")<html.find("id=\"findings\"")&&html.find("링크 분리 원인 분해")!=std::string::npos,"The synthesis must come before the individual findings.");
         // Masked LLM context.
         auto context=json_text(llm_context(r));
         require(context.find("LINE-PC-07")==std::string::npos&&context.find("SN12345")==std::string::npos&&context.find("8.8.8.8")==std::string::npos,"LLM context must mask host name, serial numbers and public IPs.");
