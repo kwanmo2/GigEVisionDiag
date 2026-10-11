@@ -9,6 +9,7 @@ import zipfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument('archive', type=Path)
+parser.add_argument('--powershell', default='powershell.exe', help='PowerShell host used to create the package')
 args = parser.parse_args()
 archive = args.archive.resolve()
 base = archive.stem
@@ -36,9 +37,9 @@ with zipfile.ZipFile(archive) as z:
 assert archive.with_name(archive.name + '.sha256').read_text('ascii').split()[0] == hashlib.sha256(archive.read_bytes()).hexdigest()
 env = dict(os.environ, FNC_VERIFY_EXE=str(expanded_exe))
 ps = r"$ErrorActionPreference='Stop'; $v=(Get-Item -LiteralPath $env:FNC_VERIFY_EXE).VersionInfo; $s=Get-AuthenticodeSignature -LiteralPath $env:FNC_VERIFY_EXE; @{file_version=$v.FileVersion;product_version=$v.ProductVersion;publisher=$v.CompanyName;signature_status=[string]$s.Status} | ConvertTo-Json -Compress"
-proc = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ps],
+proc = subprocess.run([args.powershell, '-NoProfile', '-NonInteractive', '-Command', ps],
                       env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
-assert proc.returncode == 0, 'File metadata inspection failed'
+assert proc.returncode == 0, f'File metadata inspection failed ({proc.returncode}): {proc.stderr}'
 metadata = json.loads(proc.stdout)
 assert metadata['product_version'] == status['tool_version']
 assert metadata['file_version'] == status['file_version'] and metadata['publisher'] == status['publisher_display_name']

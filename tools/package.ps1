@@ -39,6 +39,7 @@ Set-Content -LiteralPath (Join-Path $taskPackage 'RELEASE_STATUS.json') -Value (
 Compress-Archive -LiteralPath $taskPackage -DestinationPath $taskZip
 $taskZipHash = (Get-FileHash -LiteralPath $taskZip -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$taskZip.sha256" -Value "$taskZipHash  $(Split-Path -Leaf $taskZip)" -Encoding ASCII
-python (Join-Path $PSScriptRoot 'verify_package.py') $taskZip
+$taskPowerShell = (Get-Process -Id $PID).Path
+python (Join-Path $PSScriptRoot 'verify_package.py') $taskZip --powershell $taskPowerShell
 if ($LASTEXITCODE -ne 0) { throw 'Final package verification failed; do not distribute this archive.' }
 Write-Output $taskZip
