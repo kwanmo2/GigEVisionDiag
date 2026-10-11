@@ -1,0 +1,24 @@
+name: Windows build and behavioral checks
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/verify_safety.py
+      - run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - shell: pwsh
+        run: |
+          $bundle = Get-ChildItem build -Recurse -Filter diagnostics.zip | Select-Object -First 1
+          if (!$bundle) { throw 'Behavioral test bundle missing' }
+          python tools/verify_bundle.py $bundle.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - shell: pwsh
+        run: |
+          ./tools/package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
