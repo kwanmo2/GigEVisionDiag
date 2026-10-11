@@ -1,10 +1,12 @@
 # 버전 안내 — 1.4.0
 
+- 실행 사용자 프로필의 `MVSDK\<Application 이름>\*.log`를 기본 수집에 추가합니다. 최근 수정된 로그부터 192개·합계 64 MiB, 파일마다 마지막 16 MiB를 원본 바이트로 보존합니다. `mvsdk-index.json`과 snapshot에 앱·원본 경로·시각·복사 범위·실패·누락을 기록합니다. 자동·명시 로그를 같은 SDK 분석기로 처리하고, ZIP/폴더 입력 모두 스트리밍으로 해시 검증 및 오프라인 분석합니다. 파일 날짜 필터·중첩 폴더·ZIP/덤프 수집·SDK 실행은 없습니다.
+
 - Sapera Log Server 로그를 기본 수집에 추가합니다. 레지스트리 `LogFile`(64비트/32비트 순서), 값이 없으면 `%WINDIR%\System32\Logs.dat`를 사용합니다. 64 MiB 이하 전체 원본을 `sapera-Logs.dat`로 저장하고 manifest 해시와 ZIP CRC로 검증합니다. 초과 파일은 자르지 않으며 파일 없음·권한·잠금·수집 중 변경을 기록합니다. 서비스/설정 변경이나 텍스트 파싱·날짜 필터는 없습니다.
 
 - 카메라/SDK 관련 Application Error 1000, Application Hang 1002, WER 1001, .NET Runtime 1026을 XML의 앱·모듈·경로로 선별합니다. 반복 가능한 `--app-name`으로 추가 앱을 지정합니다. Huaray 설치 목록은 DisplayName과 Publisher에서 인식합니다.
 - `mvGenICamForEthernet`을 전용 System 증거 파일과 수집 작업으로 분리합니다. 일반 System의 선택 예산을 차지하지 않으며 전체 Windows/SetupAPI 100,000행 제한을 유지합니다.
-- 명시한 `--log-file`의 MVSDK/CamClient 로그에서 세션·버전·카메라·MTU/패킷·타임아웃·통계·오류 유형을 추출합니다. SDK 이벤트와 요약도 manifest에 해시로 등록합니다. 기존 원본 로그 번들은 스트리밍 분석을 지원합니다.
+- 자동 수집 로그와 명시한 `--log-file`의 MVSDK/CamClient 로그에서 세션·버전·카메라·MTU/패킷·타임아웃·통계·오류 유형을 추출합니다. SDK 이벤트와 요약도 manifest에 해시로 등록합니다. 기존 원본 로그 번들은 스트리밍 분석을 지원합니다.
 - 수집/분석의 `--log-utc-offset`으로만 SDK 시각을 UTC로 해석합니다. 분석 값이 우선하며 미확정 시각은 원문 표시와 날짜 추출 제외 횟수로 남깁니다. `kind: sdk`는 Windows 이벤트 건수와 별도입니다.
 - 애플리케이션 사고, SDK 세션, 덤프 메타데이터, 물리 메모리 표를 추가합니다. 알 수 없는 NDIS 링크 속도는 미확인으로 표시하며 64비트 메모리 용량을 보존합니다.
 - `--dump-file`은 기존 덤프 메타데이터만 읽습니다. 예외 스트림이 없으면 예외 정보 없음으로 표시합니다. `--attach-dumps`는 별도 원본 ZIP·체크섬을 만들고 기본 manifest에 참조합니다. 기본 ZIP 크기 제한은 늘리지 않습니다.

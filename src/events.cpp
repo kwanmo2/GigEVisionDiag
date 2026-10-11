@@ -247,11 +247,16 @@ Json collect_setupapi(const Json& input,const Output& output) {
     if(!kept && r["status"]=="ok")r["status"]="empty";
     r["coverage_note"]="NIC device-ID matches only; not a complete registry-setting history. Undated matching sections are preserved without inferred times. No log rotation or renaming.";return r;
 }
-Json copy_user_log(size_t index,const Json& input,const Output& output) {
-    auto r=result("User-specified existing log");const auto& logs=input.at("log_files");if(index>=logs.size())throw std::runtime_error("Invalid log index.");
-    auto path=fs::path(wide(logs[index].get<std::string>()));auto slice=log_tail(path,kUserLogBytes);r["file_metadata"]=slice.metadata;
-    auto name="user-log-"+std::to_string(index+1)+".log";output.write(name,slice.bytes);r["artifacts"].push_back(name);
-    if(slice.metadata["tail_only"]==true)issue(r,"partial","Only the final 16 MiB were copied; bytes and original offset are preserved without decoding.");
+Json copy_text_log(const fs::path& path,std::string_view name,const Output& output,size_t limit) {
+    if(!limit||limit>kUserLogBytes)throw std::runtime_error("Invalid text log byte limit.");
+    auto r=result("Existing text log");auto slice=log_tail(path,limit);r["file_metadata"]=slice.metadata;
+    r["file_metadata"]["byte_limit"]=limit;output.write(name,slice.bytes);r["artifacts"].push_back(std::string(name));
+    if(slice.metadata["tail_only"]==true)issue(r,"partial","Only the final "+std::to_string(limit)+" bytes were copied; original bytes and offset are preserved without decoding.");
     if(slice.metadata["changed_during_read"]==true)issue(r,"partial","Log changed during read; copied data may span concurrent writes.");return r;
+}
+Json copy_user_log(size_t index,const Json& input,const Output& output) {
+    const auto& logs=input.at("log_files");if(index>=logs.size())throw std::runtime_error("Invalid log index.");
+    auto r=copy_text_log(fs::path(wide(logs[index].get<std::string>())),"user-log-"+std::to_string(index+1)+".log",output);
+    r["source"]="User-specified existing log";return r;
 }
 } // namespace fnc

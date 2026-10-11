@@ -4,7 +4,7 @@
 
 namespace fnc {
 constexpr size_t kSdkEventCount=10000, kSdkEventBytes=4*1024*1024, kSdkLineBytes=64*1024;
-// One parser spans all explicit input files, so limits apply to the whole run.
+// One parser spans automatic and explicit logs, so limits apply to the whole run.
 class SdkLogParser {
     std::string source_, original_, pending_, pid_;
     uint64_t offset_=0, line_offset_=0, line_number_=0, base_offset_=0;
@@ -21,4 +21,7 @@ public:
 };
 Json sdk_summary(Json events, Json sources, const std::optional<std::string>& utc_offset=std::nullopt);
 Json collect_sdk_logs(const Json& input, const Output& output);
+bool mvsdk_log_name(std::string_view name);
+bool sdk_log_name(std::string_view name);
+Json sdk_log_metadata(const Json& modules, std::string_view name);
 }

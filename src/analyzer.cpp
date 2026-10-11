@@ -25,12 +25,13 @@ std::optional<bool> boolean_value(const Json& row,std::string_view key) {
 bool user_log_name(std::string_view name) {
     for(size_t i=1;i<=kUserLogCount;++i)if(name=="user-log-"+std::to_string(i)+".log")return true;return false;
 }
-bool streamed_log_name(std::string_view name) {return user_log_name(name)||name=="sapera-Logs.dat";}
-void account_size(std::string_view name,uint64_t size,uint64_t& retained,uint64_t& logs) {
+bool streamed_log_name(std::string_view name) {return sdk_log_name(name)||name=="sapera-Logs.dat";}
+void account_size(std::string_view name,uint64_t size,uint64_t& retained,uint64_t& logs,uint64_t& mvsdk) {
     if(name=="manifest.json"){need(size<=1024*1024,"Manifest size limit exceeded.");return;}
     if(user_log_name(name)) {
         need(size<=kUserLogBytes&&size<=kUserLogBytes*kUserLogCount-logs,"User log size limit exceeded.");logs+=size;
     } else {
+        if(mvsdk_log_name(name)){need(size<=kUserLogBytes&&size<=kMvSdkLogBytes-mvsdk,"MVSDK log size limit exceeded.");mvsdk+=size;}
         need(size<=file_limit&&size<=total_limit-retained,"Evidence size limit exceeded.");retained+=size;
     }
 }
@@ -95,7 +96,7 @@ void verify_files(const EvidenceFiles& files) {
     need(files.contains("manifest.json")&&files.contains("snapshot.json"),"A complete bundle with manifest.json and snapshot.json is required.");
     auto manifest=parse_json(files.at("manifest.json"));need(manifest.contains("files")&&manifest["files"].is_array(),"Invalid manifest files list.");
     need(manifest["files"].size()<=255,"Manifest file count limit exceeded.");
-    std::set<std::string> seen;uint64_t total=0,logs=0;
+    std::set<std::string> seen;uint64_t total=0,logs=0,mvsdk=0;
     for(const auto& item:manifest["files"]) {
         auto name=item.at("name").get<std::string>();need(safe_name(name)&&name!="manifest.json","Unsafe manifest name.");
         need(seen.insert(lower(name)).second,"Duplicate manifest filename.");
@@ -104,7 +105,7 @@ void verify_files(const EvidenceFiles& files) {
         if(streamed!=files.streamed_digests().end()) {
             need(streamed_log_name(name)&&it->second.empty(),"Invalid streamed evidence.");digest=streamed->second;
         } else digest={it->second.size(),sha256_bytes(it->second)};
-        account_size(name,digest.size_bytes,total,logs);
+        account_size(name,digest.size_bytes,total,logs,mvsdk);
         need(item.at("size_bytes").get<uint64_t>()==digest.size_bytes,"Evidence size mismatch: "+name);
         need(lower(item.at("sha256").get<std::string>())==digest.sha256,"Evidence SHA-256 mismatch: "+name);
     }
@@ -296,20 +297,19 @@ std::string read_evidence_file(const fs::path& path,size_t limit) {
 
 EvidenceFiles load_evidence(const fs::path& input) {
     auto path=canonical_local_path(input);EvidenceFiles files;SdkLogParser parser;Json snapshot;
-    auto begin_log=[&](const std::string& name){std::string original=name;uint64_t base=0;bool utf16=false;
-        for(const auto& m:arr(snapshot,"modules"))if(std::find(arr(m,"artifacts").begin(),arr(m,"artifacts").end(),Json(name))!=arr(m,"artifacts").end()) {
-            const auto& meta=obj(m,"file_metadata");original=string_value(meta,"path",name);base=meta.value("copied_offset_bytes",uint64_t(0));utf16=meta.value("utf16le_detected",false);break;
-        }parser.begin(name,original,base,utf16);};
+    auto begin_log=[&](const std::string& name){auto meta=sdk_log_metadata(arr(snapshot,"modules"),name);
+        if(mvsdk_log_name(name)&&!meta.contains("copied_bytes"))return false;
+        parser.begin(name,string_value(meta,"path",name),meta.value("copied_offset_bytes",uint64_t(0)),meta.value("utf16le_detected",false));return true;};
     if(fs::is_directory(path)) {
         Output lock(path);files["manifest.json"]=read_evidence_file(lock.file("manifest.json"),1024*1024);
         auto manifest=parse_json(files.at("manifest.json"));need(arr(manifest,"files").size()<=255,"Manifest count limit exceeded.");
         snapshot=parse_json(read_evidence_file(lock.file("snapshot.json"),file_limit));
-        uint64_t total=0,logs=0;
+        uint64_t total=0,logs=0,mvsdk=0;
         for(const auto& item:arr(manifest,"files")) {
             auto name=item.at("name").get<std::string>();need(safe_name(name)&&name!="manifest.json","Unsafe manifest name.");
-            auto size=item.at("size_bytes").get<uint64_t>();account_size(name,size,total,logs);
+            auto size=item.at("size_bytes").get<uint64_t>();account_size(name,size,total,logs,mvsdk);
             need(!files.contains(name),"Duplicate manifest file.");
-            if(user_log_name(name)){begin_log(name);files.streamed_[name]=hash_evidence_file(lock.file(name),size,&parser);parser.end();files[name]="";}
+            if(sdk_log_name(name)){auto text=begin_log(name);files.streamed_[name]=hash_evidence_file(lock.file(name),size,text?&parser:nullptr);if(text)parser.end();files[name]="";}
             else if(name=="sapera-Logs.dat"){files.streamed_[name]=hash_evidence_file(lock.file(name),size);files[name]="";}
             else files[name]=read_evidence_file(lock.file(name),static_cast<size_t>(size));
         }
@@ -322,17 +322,17 @@ EvidenceFiles load_evidence(const fs::path& input) {
         if(fs::exists(sidecar)){auto checksum=read_evidence_file(sidecar,1024);need(checksum.size()>=64&&lower(checksum.substr(0,64))==sha256(path),"ZIP SHA-256 mismatch.");}
         mz_zip_archive zip{};zip.m_pRead=zip_read;zip.m_pIO_opaque=file.get();need(mz_zip_reader_init(&zip,static_cast<mz_uint64>(size.QuadPart),0)!=0,"Invalid ZIP archive.");
         try {
-            auto count=mz_zip_reader_get_num_files(&zip);need(count<=256,"ZIP entry count limit exceeded.");uint64_t total=0,logs=0;std::set<std::string> names;
+            auto count=mz_zip_reader_get_num_files(&zip);need(count<=256,"ZIP entry count limit exceeded.");uint64_t total=0,logs=0,mvsdk=0;std::set<std::string> names;
             int snapshot_index=mz_zip_reader_locate_file(&zip,"snapshot.json",nullptr,0);need(snapshot_index>=0,"Missing snapshot.json.");mz_zip_archive_file_stat ss{};
             need(mz_zip_reader_file_stat(&zip,static_cast<mz_uint>(snapshot_index),&ss)!=0&&ss.m_uncomp_size<=file_limit,"Snapshot size limit exceeded.");
             std::string sb(static_cast<size_t>(ss.m_uncomp_size),'\0');need(mz_zip_reader_extract_to_mem(&zip,static_cast<mz_uint>(snapshot_index),sb.data(),sb.size(),0)!=0,"Snapshot extraction failed.");snapshot=parse_json(sb);
             for(mz_uint i=0;i<count;++i) {
                 mz_zip_archive_file_stat stat{};need(mz_zip_reader_file_stat(&zip,i,&stat)!=0,"Invalid ZIP entry.");
                 std::string name=stat.m_filename;need(safe_name(name)&&!stat.m_is_directory,"ZIP requires flat safe evidence filenames.");
-                need(names.insert(lower(name)).second,"Duplicate ZIP filename.");account_size(name,stat.m_uncomp_size,total,logs);
+                need(names.insert(lower(name)).second,"Duplicate ZIP filename.");account_size(name,stat.m_uncomp_size,total,logs,mvsdk);
                 if(streamed_log_name(name)) {
-                    bool text_log=user_log_name(name);if(text_log)begin_log(name);
-                    StreamHash hash;hash.limit=text_log?kUserLogBytes:kSaperaLogBytes;hash.parser=text_log?&parser:nullptr;
+                    bool text_log=sdk_log_name(name)&&begin_log(name);
+                    StreamHash hash;hash.limit=name=="sapera-Logs.dat"?kSaperaLogBytes:kUserLogBytes;hash.parser=text_log?&parser:nullptr;
                     auto ok=mz_zip_reader_extract_to_callback(&zip,i,hash_zip_chunk,&hash,0);
                     if(hash.error)std::rethrow_exception(hash.error);need(ok!=0,"ZIP log extraction/CRC failed.");
                     need(hash.bytes==stat.m_uncomp_size,"ZIP log size mismatch.");files.streamed_[name]=hash.finish();if(text_log)parser.end();files[name]="";continue;
@@ -497,9 +497,9 @@ Json analyze_evidence(const EvidenceFiles& files,const std::optional<EventDateFi
         need(files.at("sdk-events.jsonl").size()<=kSdkEventBytes,"SDK derived event byte limit exceeded.");std::istringstream stream(files.at("sdk-events.jsonl"));std::string line;size_t count=0;
         while(std::getline(stream,line)){if(line.empty())continue;need(++count<=kSdkEventCount,"SDK derived event count limit exceeded.");
             try{auto e=parse_json(line);need(e.is_object()&&e.contains("fields")&&e["fields"].is_object()&&e.contains("source_line")&&e["source_line"].is_number_unsigned(),"Invalid SDK record.");
-                auto source=e.at("source_file").get<std::string>();need(user_log_name(source)&&files.contains(source),"Missing SDK source file.");
+                auto source=e.at("source_file").get<std::string>();need(sdk_log_name(source)&&files.contains(source),"Missing SDK source file.");
                 auto digest=files.streamed_digests().find(source);auto size=digest==files.streamed_digests().end()?files.at(source).size():digest->second.size_bytes;
-                uint64_t base=0;for(const auto& m:arr(s,"modules"))if(std::find(arr(m,"artifacts").begin(),arr(m,"artifacts").end(),Json(source))!=arr(m,"artifacts").end())base=obj(m,"file_metadata").value("copied_offset_bytes",uint64_t(0));
+                auto meta=sdk_log_metadata(arr(s,"modules"),source);need(!mvsdk_log_name(source)||meta.contains("copied_bytes"),"Missing MVSDK source metadata.");uint64_t base=meta.value("copied_offset_bytes",uint64_t(0));
                 need(e.contains("source_byte_offset")&&e["source_byte_offset"].is_number_unsigned(),"Invalid SDK byte offset.");auto at=e.at("source_byte_offset").get<uint64_t>();need(at>=base&&at-base<=size,"SDK source offset outside copied log.");
                 for(auto key:{"kind","original_timestamp","pid","thread_id","level","message"})need(e.contains(key)&&e[key].is_string(),"Invalid SDK text field.");sdk_events.push_back(std::move(e));
             }catch(const std::exception& ex){notice(r,"sdk-events.jsonl 분석 제외: "+std::string(ex.what()));}
@@ -507,9 +507,9 @@ Json analyze_evidence(const EvidenceFiles& files,const std::optional<EventDateFi
         if(files.contains("sdk-summary.json")){auto summary=parse_json(files.at("sdk-summary.json"));sdk_sources=arr(summary,"sources");if(summary.value("truncated",false))notice(r,"SDK 구조화 기록이 수집 한도 또는 로그 꼬리 범위로 제한되었습니다.");}
     } else if(files.streamed_sdk().is_object()){sdk_events=arr(files.streamed_sdk(),"events");sdk_sources=arr(files.streamed_sdk(),"sources");if(files.streamed_sdk().value("truncated",false))notice(r,"SDK 로그의 긴 행·부분 꼬리·건수/크기 한도로 일부 기록이 제외되었습니다.");}
     else {
-        SdkLogParser parser;for(const auto& [name,bytes]:files)if(user_log_name(name)) {std::string original=name;uint64_t base=0;bool utf16=false;
-            for(const auto& m:arr(s,"modules"))if(std::find(arr(m,"artifacts").begin(),arr(m,"artifacts").end(),Json(name))!=arr(m,"artifacts").end()){const auto& meta=obj(m,"file_metadata");original=string_value(meta,"path",name);base=meta.value("copied_offset_bytes",uint64_t(0));utf16=meta.value("utf16le_detected",false);}
-            parser.begin(name,original,base,utf16);parser.feed(bytes);parser.end();}
+        SdkLogParser parser;for(const auto& [name,bytes]:files)if(sdk_log_name(name)) {auto meta=sdk_log_metadata(arr(s,"modules"),name);
+            if(mvsdk_log_name(name)&&!meta.contains("copied_bytes"))continue;
+            parser.begin(name,string_value(meta,"path",name),meta.value("copied_offset_bytes",uint64_t(0)),meta.value("utf16le_detected",false));parser.feed(bytes);parser.end();}
         auto summary=parser.finish();sdk_events=summary["events"];sdk_sources=summary["sources"];if(summary.value("truncated",false))notice(r,"SDK 로그 구조화 한도로 일부 기록이 제외되었습니다.");
     }
     r["sdk"]=sdk_summary(sdk_events,sdk_sources,sdk_offset);r["source_sdk_event_count"]=sdk_events.size();

@@ -27,6 +27,8 @@ constexpr size_t kEventCount = 10000;
 constexpr size_t kUserLogBytes = 16 * 1024 * 1024;
 constexpr size_t kUserLogCount = 16;
 constexpr size_t kSaperaLogBytes = 64 * 1024 * 1024;
+constexpr size_t kMvSdkLogCount = 192;
+constexpr size_t kMvSdkLogBytes = 64 * 1024 * 1024;
 constexpr size_t kSetupSectionCount = 20000;
 constexpr size_t kDumpCount = 8;
 
@@ -122,6 +124,9 @@ Json collect_task(std::string_view id, const Json& input, const Output& output);
 Json collect_events(std::string_view channel, const Json& input, const Output& output);
 Json collect_setupapi(const Json& input, const Output& output);
 Json copy_user_log(size_t index, const Json& input, const Output& output);
+Json copy_text_log(const fs::path& path, std::string_view name, const Output& output, size_t limit = kUserLogBytes);
+Json copy_mvsdk_logs(const fs::path& root, const Output& output);
+Json collect_mvsdk_logs(const Output& output);
 Json copy_sapera_log(const fs::path& path, const Output& output);
 Json collect_sapera_log(const Output& output);
 bool event_interesting(const Json& event, std::string_view channel, const Json& input);

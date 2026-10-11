@@ -6,7 +6,7 @@ struct EvidenceDigest {
     uint64_t size_bytes=0;std::string sha256;
     bool operator==(const EvidenceDigest&) const = default;
 };
-// User log bodies are verified and parsed in bounded chunks, then discarded.
+// Automatic MVSDK and user log bodies are verified and parsed in bounded chunks, then discarded.
 // Sapera binary logs are verified in bounded chunks without text parsing.
 // Only load_evidence can attach a digest in place of a retained body.
 class EvidenceFiles : public std::map<std::string,std::string> {

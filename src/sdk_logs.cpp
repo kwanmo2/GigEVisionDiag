@@ -111,21 +111,46 @@ Json sdk_summary(Json events,Json sources,const std::optional<std::string>& offs
         {"interpretation_note","ERROR counts, unsupported parameters and grabbing transitions alone do not establish a network failure or crash cause. Runtime SDK, installed software and dump module versions are separate observations."}};
 }
 Json SdkLogParser::finish(const std::optional<std::string>& offset) {return sdk_summary(events_,files_,offset);}
+bool mvsdk_log_name(std::string_view name) {
+    for(size_t i=1;i<=kMvSdkLogCount;++i)if(name=="mvsdk-log-"+std::to_string(i)+".log")return true;return false;
+}
+bool sdk_log_name(std::string_view name) {
+    for(size_t i=1;i<=kUserLogCount;++i)if(name=="user-log-"+std::to_string(i)+".log")return true;return mvsdk_log_name(name);
+}
+Json sdk_log_metadata(const Json& modules,std::string_view name) {
+    for(const auto& m:modules) {
+        if(m.contains("files")&&m["files"].is_array())for(const auto& file:m["files"])
+            if(file.value("artifact","")==name)return file.value("file_metadata",Json::object());
+        if(m.contains("artifacts")&&m["artifacts"].is_array()&&std::find(m["artifacts"].begin(),m["artifacts"].end(),Json(std::string(name)))!=m["artifacts"].end()&&m.contains("file_metadata"))return m["file_metadata"];
+    }
+    return Json::object();
+}
 Json collect_sdk_logs(const Json& input,const Output& output) {
-    auto r=result("Explicit SDK log analysis");SdkLogParser parser;
-    for(size_t i=0;i<input.at("log_files").size();++i) {
-        auto name="user-log-"+std::to_string(i+1)+".log";if(!fs::exists(output.file(name)))continue;
-        uint64_t base=0;bool utf16=false;
-        if(input.contains("log_metadata")&&input["log_metadata"].size()>i){const auto& m=input["log_metadata"][i];base=m.value("copied_offset_bytes",uint64_t(0));utf16=m.value("utf16le_detected",false);}
-        parser.begin(name,input["log_files"][i].get<std::string>(),base,utf16);
+    auto r=result("Automatic and explicit SDK log analysis");SdkLogParser parser;
+    auto parse=[&](const std::string& name,const std::string& original,const Json& meta){
+        parser.begin(name,original,meta.value("copied_offset_bytes",uint64_t(0)),meta.value("utf16le_detected",false));
         Handle h(CreateFileW(output.file(name).c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,nullptr));if(!h)fail_win("Read copied SDK log");
         char b[65536];DWORD n=0;while(true){if(!ReadFile(h.get(),b,sizeof(b),&n,nullptr))fail_win("SDK log stream");if(!n)break;parser.feed(std::string_view(b,n));}parser.end();
+    };
+    for(size_t i=0;i<input.at("log_files").size();++i) {
+        auto name="user-log-"+std::to_string(i+1)+".log";if(!fs::exists(output.file(name)))continue;
+        Json meta=Json::object();if(input.contains("log_metadata")&&input["log_metadata"].size()>i)meta=input["log_metadata"][i];
+        parse(name,input["log_files"][i].get<std::string>(),meta);
+    }
+    if(fs::exists(output.file("mvsdk-index.json"))) {
+        auto index=Json::parse(read_local_file(output.file("mvsdk-index.json"),2*1024*1024));
+        for(const auto& file:index.at("files")) {
+            auto name=file.at("artifact").get<std::string>();const auto& meta=file.at("file_metadata");
+            if(!mvsdk_log_name(name)||!meta.contains("copied_bytes")||!fs::exists(output.file(name)))continue;
+            parse(name,meta.at("path").get<std::string>(),meta);
+        }
     }
     std::optional<std::string> offset;if(input.contains("log_utc_offset")&&input["log_utc_offset"].is_string())offset=input["log_utc_offset"].get<std::string>();
     auto summary=parser.finish(offset);std::string lines;
     for(const auto& e:summary["events"]){auto line=json_text(e)+"\n";if(lines.size()+line.size()>kSdkEventBytes){summary["truncated"]=true;break;}lines+=line;}
     output.write("sdk-events.jsonl",lines);summary.erase("events");output.write("sdk-summary.json",json_text(summary,2)+"\n");
     r["artifacts"]={"sdk-events.jsonl","sdk-summary.json"};r["summary"]=summary;
+    if(summary["sources"].empty())r["status"]="empty";
     if(summary["truncated"]==true)issue(r,"partial","SDK count/byte/line limits or copied tail omitted records.");return r;
 }
 }
