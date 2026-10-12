@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FetchNetworkConfig AI review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "summary", "model", "generated_at", "hypotheses", "actions", "additional_checks", "caveats"],
+  "properties": {
+    "schema_version": { "type": "integer", "enum": [1] },
+    "summary": { "type": "string", "description": "Korean summary of the most likely problem and its impact, max ~10 sentences." },
+    "model": { "type": ["string", "null"] },
+    "generated_at": { "type": ["string", "null"], "description": "ISO-8601 UTC time, or null." },
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "confidence", "reasoning", "finding_ids"],
+        "properties": {
+          "title": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "reasoning": { "type": "string" },
+          "finding_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priority", "action", "finding_ids"],
+        "properties": {
+          "priority": { "type": "integer" },
+          "action": { "type": "string" },
+          "finding_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "additional_checks": { "type": "array", "items": { "type": "string" } },
+    "caveats": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -12,7 +12,7 @@
 - 새 결과 폴더를 쓰기 경계로 사용. 폴더 핸들은 삭제·이름 변경 공유를 허용하지 않으며 junction, symlink, 원격 경로, 장치 이름, 경로 이탈과 대체 스트림을 거부.
 - 사용자가 명시한 기존 로그와 `%WINDIR%\INF\setupapi.dev.log`를 읽기 핸들로 열기. 운용 프로그램과 공유 읽기·쓰기를 허용하고 원본 바이트와 메타데이터를 보존.
 - 동일 EXE의 고정 수집 작업을 자식 프로세스로 실행. 상속 핸들은 입력·출력 파이프만 허용. 이름 없는 Job Object로 메모리와 수명을 제한하며 시간 초과 시 직접 만든 자식만 종료.
-- `analyze` 명령은 관리자 권한 없이 저장된 로컬 결과 폴더/ZIP만 읽음. manifest 파일 해시와 ZIP CRC 검증 후 새 폴더에 `analysis.html` 생성. `--date` 지정 시 해당 날짜의 `selected-events.csv` / `selected-events.jsonl`도 같은 폴더에 생성. 폴더 입력은 원본 폴더 밖에 결과를 저장하며, ZIP은 메모리에서 처리하고 원본 파일을 변경하지 않음.
+- `analyze` 명령은 관리자 권한 없이 저장된 로컬 결과 폴더/ZIP만 읽음. manifest 파일 해시와 ZIP CRC 검증 후 새 폴더에 `analysis.html`, `findings.json`(규칙 기반 판정), `llm-context.json`(마스킹된 요약) 생성. `--ai-review`로 지정한 로컬 JSON은 스키마 검증 후 보고서에 escape하여 삽입만 함. EXE는 LLM을 포함한 어떤 외부 서비스에도 접속하지 않음. 외부 LLM 검토는 배포물에 포함되지 않는 엔지니어용 `tools/ai-review.ps1`이 사용자 확인 후 마스킹된 `llm-context.json`만 Codex CLI로 전송하는 별도 단계임. `--date` 지정 시 해당 날짜의 `selected-events.csv` / `selected-events.jsonl`도 같은 폴더에 생성. 폴더 입력은 원본 폴더 밖에 결과를 저장하며, ZIP은 메모리에서 처리하고 원본 파일을 변경하지 않음.
 - XML 분석은 메모리 스트림만 사용하며 DTD와 외부 resolver를 차단. HTML은 증거 문자열을 escape하고 외부 리소스·전송을 요청하지 않음. 사용자가 명시적으로 참고 링크를 누르는 것은 브라우저의 동작.
 - 선택 옵션의 `EvtExportLog`는 JSONL로 선택한 Record ID만 새 결과 파일로 복사. 이벤트 삭제나 export-and-clear는 사용하지 않으며 내보낸 ID를 대조한 파일만 manifest에 등록.
 - 명시한 기존 DMP를 읽기 핸들로 열어 헤더·시스템·모듈·예외 스트림의 제한된 메타데이터를 읽음. 프로세스 열기·덤프 생성·메모리/스택 실행 분석은 없음. 선택 첨부는 원본을 별도 ZIP으로 읽기 복사하고 읽기 전후 크기·수정 시각을 대조.

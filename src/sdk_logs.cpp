@@ -46,14 +46,27 @@ void SdkLogParser::feed(std::string_view bytes) {
 void SdkLogParser::end() {
     if(!pending_.empty()){++line_number_;if(!oversized_&&!tail_)line(pending_);else ++skipped_;}
     files_.push_back({{"source_file",source_},{"original_path",original_},{"line_count",line_number_},{"recognized_lines",recognized_},{"skipped_lines",skipped_},
-        {"encoding",utf16_?"UTF-16LE":"UTF-8 or CP949 fallback"},{"copied_offset_bytes",base_offset_},{"tail_only",base_offset_!=0},{"line_numbers_relative_to_copy",true}});pending_.clear();
+        {"encoding",utf16_?"UTF-16LE":"UTF-8 or CP949 fallback"},{"copied_offset_bytes",base_offset_},{"tail_only",base_offset_!=0},{"line_numbers_relative_to_copy",true},
+        {"camera_ips",camera_ips_},{"reset_times",reset_times_},{"identities",identities_}});pending_.clear();camera_ips_.clear();reset_times_.clear();identities_=Json::array();
 }
 void SdkLogParser::line(std::string raw) {
     auto s=decode(raw,utf16_);while(!s.empty()&&(s.back()=='\n'||s.back()=='\r'))s.pop_back();auto l=lower(s);
     if(s.size()<24||s[4]!='-'||s[7]!='-'||s[10]!=' '||l.find("[tid:")==std::string::npos)return;
     bool sdk=lower(original_).find("mvsdk")!=std::string::npos||lower(original_).find("camclient")!=std::string::npos;
     for(auto token:{"mvsdk","gige","cameraimpl","cmvdevice","streamsourceimpl","cdevicemanager","mainwindow","discoverydevicethread"})if(l.find(token)!=std::string::npos)sdk=true;
-    if(!sdk)return;++recognized_;if(budget_exhausted_){++skipped_;return;}
+    if(!sdk)return;++recognized_;
+    // Camera addresses seen by the SDK ("... dev ip [169.254.1.2]") identify camera NICs; kept per file, outside the event budget.
+    if(camera_ips_.size()<64)if(auto ip=capture(s,"dev ip[ :=]*\\[([0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})\\]");!ip.empty())camera_ips_.insert(ip);
+    // An application-issued DeviceReset reboots the camera, which drops the NIC link; kept to explain those link events.
+    if(reset_times_.size()<20000&&l.find("devicereset")!=std::string::npos&&l.find("execute")!=std::string::npos)reset_times_.push_back(s.substr(0,23));
+    // SDK/driver versions and camera identities are few but needed for the synthesis even after the event budget runs out.
+    if(identities_.size()<64&&(l.find("mvsdk ver")!=std::string::npos||l.find("gige user")!=std::string::npos||l.find("vendor=[")!=std::string::npos)) {
+        Json v={{"timestamp",s.substr(0,23)}};auto put=[&](const char* key,const char* pattern){auto value=capture(s,pattern);if(!value.empty())v[key]=value;};
+        put("sdk_version","MVSDK ver(?:ison|sion)[:=]\\[([^\\]]+)\\]");put("gige_user_version","gige user[:=]\\[([^\\]]+)\\]");put("gige_kernel_version","gige kernel[:=]\\[([^\\]]+)\\]");
+        put("vendor","Vendor=\\[([^\\]]+)\\]");put("model","Model=\\[([^\\]]+)\\]");put("serial_number","SerialNumber=\\[([^\\]]+)\\]");put("firmware_version","Version=\\[([^\\]]+)\\]");
+        if(v.size()>1&&(identities_.empty()||identities_.back()!=v))identities_.push_back(std::move(v));
+    }
+    if(budget_exhausted_){++skipped_;return;}
     auto ts=s.substr(0,23);auto iso=ts;iso[10]='T';if(!parse_iso_time(iso+"Z"))return;
     std::string kind;Json fields=Json::object();
     auto set=[&](const char* key,const char* pattern,bool number=false){auto value=capture(s,pattern);if(!value.empty())fields[key]=number?numeric(value):Json(value);};
